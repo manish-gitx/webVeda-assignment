@@ -55,8 +55,17 @@ export const POSITIVE = "#37B981"
  * "#7C5CFF" on the canvas, "rgb(124, 92, 255)" on the published site. Parsing
  * has to cope with both, and with rgba() and 3-digit hex.
  */
-export function toRgb(color) {
+export function toRgb(color, depth) {
     const value = String(color == null ? "" : color).trim()
+
+    // A Framer Color Style arrives as `var(--token-1a2b, rgb(124, 92, 255))`.
+    // The fallback after the comma is the real colour, so read that. This
+    // matters because using a shared Color Style is the recommended way to
+    // keep the three components' accents in sync.
+    const token = /^var\(\s*--[^,)]+,\s*([\s\S]+)\)$/.exec(value)
+    if (token && (depth || 0) < 3) {
+        return toRgb(token[1], (depth || 0) + 1)
+    }
 
     const hex = /^#?([\da-f]{3}|[\da-f]{6})$/i.exec(value)
     if (hex) {
@@ -164,9 +173,56 @@ export function luminance(color) {
     return 0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2])
 }
 
-/** Black or white, whichever stays legible on the given background. */
+/** WCAG contrast ratio between two colours, 1 (identical) to 21 (black/white). */
+export function contrastRatio(a, b) {
+    const light = Math.max(luminance(a), luminance(b))
+    const dark = Math.min(luminance(a), luminance(b))
+    return (light + 0.05) / (dark + 0.05)
+}
+
+const INK = "#0B0D12"
+
+/**
+ * Black or white on the given background — whichever actually wins the
+ * contrast ratio.
+ *
+ * A guessed luminance threshold gets this wrong for a whole band of ordinary
+ * brand colours: on #00B4D8 or #FF8A00 a naive cutoff picks white at ~2.4:1
+ * when black would have given ~8.5:1. Comparing the two ratios costs nothing
+ * and is right by construction.
+ */
 export function contrastText(color) {
-    return luminance(color) > 0.45 ? "#0B0D12" : "#FFFFFF"
+    return contrastRatio(color, INK) >= contrastRatio(color, "#FFFFFF")
+        ? INK
+        : "#FFFFFF"
+}
+
+/** Linear blend between two colours, amount 0 = a, 1 = b. */
+export function mix(a, b, amount) {
+    const from = toRgb(a)
+    const to = toRgb(b)
+    if (!from || !to) return a
+    const at = (i) => Math.round(from[i] + (to[i] - from[i]) * amount)
+    return `rgb(${at(0)}, ${at(1)}, ${at(2)})`
+}
+
+/**
+ * Nudges a foreground colour towards a reference until it is legible on the
+ * given background.
+ *
+ * Chips paint their label in the accent over a 12% tint of that same accent,
+ * which looks good but can land under the 4.5:1 small-text minimum — the
+ * shipped violet on the dark surface is only ~3.7:1. Rather than abandoning
+ * the tinted look, the label is walked toward the body text colour just far
+ * enough to clear the bar.
+ */
+export function readableOn(foreground, background, reference) {
+    if (contrastRatio(foreground, background) >= 4.5) return foreground
+    for (let step = 1; step <= 5; step++) {
+        const candidate = mix(foreground, reference, step * 0.15)
+        if (contrastRatio(candidate, background) >= 4.5) return candidate
+    }
+    return reference
 }
 
 /* ------------------------------ theme resolution --------------------------- */
@@ -242,6 +298,10 @@ export const GLOBAL_CSS = `
     border-radius: 6px;
 }
 .sp-card {
+    /* The colour lives here, not in an inline style: a style-attribute
+       declaration outranks any author rule, so an inline border-color would
+       make the hover state below impossible to apply. */
+    border-color: var(--sp-card-border, transparent);
     transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
 }
 .sp-card:hover {

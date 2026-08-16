@@ -41,6 +41,19 @@ import {
     Toolbar,
 } from "./Ui.tsx"
 
+/** Visually hidden, still announced. */
+const SR_ONLY = {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    margin: -1,
+    padding: 0,
+    overflow: "hidden",
+    clip: "rect(0 0 0 0)",
+    whiteSpace: "nowrap",
+    border: 0,
+}
+
 /* ---------------------------- shared control parts -------------------------- */
 
 // Custom colours only make sense when the preset is "custom". Written so that
@@ -403,19 +416,27 @@ export function Courses(props) {
         desktopMin: layout.desktopMin,
     })
 
-    const { status, courses, errorMessage, country, countryFailed, reload } = useCourses({
+    const { status, courses, errorMessage, country, countryFailed, countryReady, reload } =
+        useCourses({
         baseUrl: advanced.baseUrl,
         attempts: advanced.retryAttempts,
         delayMs: advanced.retryDelayMs,
     })
 
     const [query, setQuery] = useState("")
-    const [sort, setSort] = useState(data.defaultSort)
+
+    // The panel sets the starting order; the visitor's dropdown overrides it.
+    // Seeding useState with the prop would freeze the value at mount, so
+    // changing Sort in Framer would silently do nothing on the canvas.
+    const [sortOverride, setSortOverride] = useState(null)
+    const sort = sortOverride || data.defaultSort
 
     // The forced modes let a designer lay the page out in either currency
     // without waiting for the endpoint to flip.
     const activeCountry = resolveCountry(data.currency, country)
     const forcedCurrency = data.currency !== "auto"
+    // A forced currency needs no lookup, so the price is known immediately.
+    const priceReady = forcedCurrency || countryReady
 
     const visible = useMemo(
         () =>
@@ -477,7 +498,7 @@ export function Courses(props) {
                         query={query}
                         onQuery={setQuery}
                         sort={sort}
-                        onSort={setSort}
+                        onSort={setSortOverride}
                         showSearch={data.showSearch}
                         showSort={data.showSort}
                         disabled={status !== "ready"}
@@ -495,8 +516,19 @@ export function Courses(props) {
                     </p>
                 ) : null}
 
-                {/* Screen readers get told what changed; sighted users see it. */}
-                <div ref={gridRef} aria-live="polite">
+                {/* A polite live region wrapped around the grid would make a
+                    screen reader read every card in full on every change. It
+                    announces a one-line summary instead, and the grid itself
+                    is left as ordinary content. */}
+                <p style={SR_ONLY} role="status">
+                    {status === "loading"
+                        ? "Loading courses"
+                        : status === "error"
+                          ? messages.errorTitle
+                          : `${visible.length} ${visible.length === 1 ? "course" : "courses"}`}
+                </p>
+
+                <div ref={gridRef}>
                     {status === "loading" ? (
                         <SkeletonGrid
                             columns={columns}
@@ -536,6 +568,7 @@ export function Courses(props) {
                             theme={theme}
                             card={card}
                             priceNote={content.priceNote}
+                            priceReady={priceReady}
                         />
                     ) : null}
                 </div>

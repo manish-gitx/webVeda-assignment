@@ -6,7 +6,7 @@
  * Plain JavaScript (see the note at the top of Tokens.tsx about the extension).
  */
 
-import { GLOBAL_CSS, POSITIVE, SHADOWS, tint } from "./Tokens.tsx"
+import { GLOBAL_CSS, POSITIVE, SHADOWS, mix, readableOn, tint } from "./Tokens.tsx"
 import { extraFieldValue, formatPrice } from "./Format.tsx"
 
 /** One <style> tag carrying the rules that inline styles can't express. */
@@ -18,13 +18,17 @@ export function StyleSheet() {
 
 export function Chip({ label, theme, tone }) {
     const colour = tone === "positive" ? POSITIVE : theme.accent
+    // The label sits on a 12% tint of its own colour composited over the card
+    // surface, so that blend — not the surface alone — is the real backdrop to
+    // measure legibility against.
+    const backdrop = mix(theme.surface, colour, 0.12)
     return (
         <span
             style={{
                 fontSize: 12,
                 fontWeight: 500,
                 lineHeight: 1.4,
-                color: colour,
+                color: readableOn(colour, backdrop, theme.text),
                 background: tint(colour, 0.12),
                 border: `1px solid ${tint(colour, 0.28)}`,
                 borderRadius: 999,
@@ -121,7 +125,7 @@ export function Toolbar({
 
 /* ----------------------------------- card ---------------------------------- */
 
-export function CourseCard({ course, country, theme, card, priceNote }) {
+export function CourseCard({ course, country, theme, card, priceNote, priceReady }) {
     const extra = extraFieldValue(course, card.extraField)
     const showRefundable = card.showRefundable && course.refundable === true
 
@@ -135,7 +139,9 @@ export function CourseCard({ course, country, theme, card, priceNote }) {
                 padding: card.padding,
                 borderRadius: card.radius,
                 background: theme.surface,
-                border: card.showBorder ? `1px solid ${theme.border}` : "1px solid transparent",
+                borderWidth: 1,
+                borderStyle: "solid",
+                ["--sp-card-border"]: card.showBorder ? theme.border : "transparent",
                 boxShadow: SHADOWS[card.shadow] || SHADOWS.none,
                 minWidth: 0,
             }}
@@ -186,9 +192,20 @@ export function CourseCard({ course, country, theme, card, priceNote }) {
                     gap: 8,
                 }}
             >
-                <span style={{ fontSize: 20, fontWeight: 600, color: theme.text }}>
-                    {formatPrice(course, country)}
-                </span>
+                {/* Until the country lookup settles the currency is a guess,
+                    so hold the number back rather than print one we may have
+                    to swap a moment later. */}
+                {priceReady ? (
+                    <span style={{ fontSize: 20, fontWeight: 600, color: theme.text }}>
+                        {formatPrice(course, country)}
+                    </span>
+                ) : (
+                    <span
+                        className="sp-skeleton"
+                        aria-hidden="true"
+                        style={{ display: "inline-block", width: "5ch", height: 20 }}
+                    />
+                )}
                 {priceNote ? (
                     <span style={{ fontSize: 12, color: theme.muted }}>{priceNote}</span>
                 ) : null}
@@ -197,7 +214,7 @@ export function CourseCard({ course, country, theme, card, priceNote }) {
     )
 }
 
-export function CourseGrid({ courses, columns, gap, country, theme, card, priceNote }) {
+export function CourseGrid({ courses, columns, gap, country, theme, card, priceNote, priceReady }) {
     return (
         <div
             style={{
@@ -216,6 +233,7 @@ export function CourseGrid({ courses, columns, gap, country, theme, card, priceN
                     theme={theme}
                     card={card}
                     priceNote={priceNote}
+                    priceReady={priceReady}
                 />
             ))}
         </div>
@@ -243,9 +261,9 @@ export function SkeletonGrid({ columns, count, gap, theme, card }) {
                         padding: card.padding,
                         borderRadius: card.radius,
                         background: theme.surface,
-                        border: card.showBorder
-                            ? `1px solid ${theme.border}`
-                            : "1px solid transparent",
+                        borderWidth: 1,
+                        borderStyle: "solid",
+                        borderColor: card.showBorder ? theme.border : "transparent",
                         display: "flex",
                         flexDirection: "column",
                         gap: 12,
