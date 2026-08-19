@@ -57,6 +57,13 @@ const theme = {
 /** setTimeout that gives up if the component unmounts mid-wait. */
 function wait(ms, signal) {
     return new Promise((resolve, reject) => {
+        // An already-aborted signal never fires "abort" again, so the
+        // listener below would never run and this would resolve instead.
+        if (signal.aborted) {
+            reject(new Error("aborted"))
+            return
+        }
+
         const timer = setTimeout(resolve, ms)
         signal.addEventListener(
             "abort",
@@ -144,6 +151,21 @@ function formatPrice(course, country) {
     ).format(minorUnits / 100)
 }
 
+/* ------------------------------- accessibility ------------------------------ */
+
+/** Off-screen but still spoken; `display: none` would silence it. */
+const visuallyHidden = {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    margin: -1,
+    padding: 0,
+    overflow: "hidden",
+    clip: "rect(0 0 0 0)",
+    whiteSpace: "nowrap",
+    border: 0,
+}
+
 /* --------------------------------- responsive ------------------------------- */
 
 /**
@@ -178,7 +200,8 @@ function useColumns(ref) {
 /* ----------------------------------- Hero ---------------------------------- */
 
 /**
- * @framerSupportsResize true
+ * @framerSupportedLayoutWidth any
+ * @framerSupportedLayoutHeight auto
  * @framerIntrinsicWidth 1200
  * @framerIntrinsicHeight 520
  * @framerDisableUnlink
@@ -191,6 +214,9 @@ export function Hero(props) {
         <section
             style={{
                 ...style,
+                // Read by .sp-focusable in sharedCss(), so each instance
+                // gets its own accent instead of the last one rendered.
+                "--sp-accent": accentColor,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -268,7 +294,7 @@ export function Hero(props) {
                 {buttonLabel}
             </a>
 
-            <style>{sharedCss(accentColor)}</style>
+            <style>{sharedCss()}</style>
         </section>
     )
 }
@@ -296,7 +322,8 @@ addPropertyControls(Hero, {
 /* --------------------------------- Courses --------------------------------- */
 
 /**
- * @framerSupportsResize true
+ * @framerSupportedLayoutWidth any
+ * @framerSupportedLayoutHeight auto
  * @framerIntrinsicWidth 1200
  * @framerIntrinsicHeight 900
  * @framerDisableUnlink
@@ -377,12 +404,22 @@ export function Courses(props) {
             const direction = sortOrder === "asc" ? 1 : -1
             // Sort on the currency we are actually displaying, so the order on
             // screen always matches the numbers on screen.
-            list = [...list].sort(
-                (a, b) =>
-                    (priceInMinorUnits(a, country) -
-                        priceInMinorUnits(b, country)) *
-                    direction
-            )
+            list = [...list].sort((a, b) => {
+                const left = priceInMinorUnits(a, country)
+                const right = priceInMinorUnits(b, country)
+
+                // A course with an unusable price renders "—". Returning NaN
+                // from a comparator makes sort() produce an arbitrary order,
+                // so those are parked at the end in both directions instead.
+                const leftMissing = Number.isNaN(left)
+                const rightMissing = Number.isNaN(right)
+                if (leftMissing || rightMissing) {
+                    if (leftMissing && rightMissing) return 0
+                    return leftMissing ? 1 : -1
+                }
+
+                return (left - right) * direction
+            })
         }
 
         return list
@@ -390,11 +427,24 @@ export function Courses(props) {
 
     const isFiltered = query.trim().length > 0
 
+    // Kept deliberately terse — this is spoken aloud, not read.
+    const liveMessage =
+        status === "loading"
+            ? "Loading courses"
+            : status === "ready" && visibleCourses.length > 0
+              ? `${visibleCourses.length} ${
+                    visibleCourses.length === 1 ? "course" : "courses"
+                } shown`
+              : ""
+
     return (
         <section
             id="courses"
             style={{
                 ...style,
+                // Read by .sp-focusable in sharedCss(), so each instance
+                // gets its own accent instead of the last one rendered.
+                "--sp-accent": accentColor,
                 padding: "80px 24px",
                 background: theme.background,
                 fontFamily: theme.font,
@@ -484,8 +534,18 @@ export function Courses(props) {
                     </p>
                 )}
 
-                {/* Screen readers get told what changed; sighted users see it. */}
-                <div ref={gridRef} aria-live="polite">
+                {/* A short spoken summary. The grid itself is far too big to
+                    announce, and it used to wrap StateBox's role="status",
+                    which nested one live region inside another.
+
+                    Always rendered, never conditionally: a live region has to
+                    already be in the DOM when its text changes, or the change
+                    is missed. Error and empty are announced by StateBox. */}
+                <p role="status" style={visuallyHidden}>
+                    {liveMessage}
+                </p>
+
+                <div ref={gridRef}>
                     {status === "loading" && <SkeletonGrid columns={columns} />}
 
                     {status === "error" && (
@@ -533,7 +593,7 @@ export function Courses(props) {
                 </div>
             </div>
 
-            <style>{sharedCss(accentColor)}</style>
+            <style>{sharedCss()}</style>
         </section>
     )
 }
@@ -804,7 +864,8 @@ function PrimaryButton({ accentColor, onClick, children }) {
 /* ---------------------------------- Footer --------------------------------- */
 
 /**
- * @framerSupportsResize true
+ * @framerSupportedLayoutWidth any
+ * @framerSupportedLayoutHeight auto
  * @framerIntrinsicWidth 1200
  * @framerIntrinsicHeight 160
  * @framerDisableUnlink
@@ -816,6 +877,9 @@ export function Footer(props) {
         <footer
             style={{
                 ...style,
+                // Read by .sp-focusable in sharedCss(), so each instance
+                // gets its own accent instead of the last one rendered.
+                "--sp-accent": accentColor,
                 padding: "36px 24px",
                 background: theme.background,
                 borderTop: `1px solid ${theme.border}`,
@@ -856,7 +920,7 @@ export function Footer(props) {
                 </span>
             </div>
 
-            <style>{sharedCss(accentColor)}</style>
+            <style>{sharedCss()}</style>
         </footer>
     )
 }
@@ -935,8 +999,15 @@ function toRgb(color) {
     return null
 }
 
-/** Keyframes and focus rings can't be inline styles, so they go in a tag. */
-function sharedCss(accentColor) {
+/**
+ * Keyframes and focus rings can't be inline styles, so they go in a tag.
+ *
+ * These class names are global and all three components emit this block, so
+ * the last one in the DOM wins. Nothing here may depend on a prop: the accent
+ * is read per-instance from the --sp-accent custom property that each
+ * component's root element sets.
+ */
+function sharedCss() {
     return `
         @keyframes sp-shimmer {
             0% { background-position: 200% 0; }
@@ -953,7 +1024,7 @@ function sharedCss(accentColor) {
             border-color: ${theme.borderStrong};
         }
         .sp-focusable:focus-visible {
-            outline: 2px solid ${accentColor};
+            outline: 2px solid var(--sp-accent, #7C5CFF);
             outline-offset: 2px;
         }
         @media (prefers-reduced-motion: reduce) {
