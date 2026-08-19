@@ -13,7 +13,7 @@
 import { addPropertyControls, ControlType } from "framer"
 import { useMemo, useRef, useState } from "react"
 
-import { ACCENT, contrastText, theme, tint, visuallyHidden } from "./Theme.tsx"
+import { ACCENT, contrastText, theme, tint, visuallyHidden } from "./Tokens.tsx"
 import { selectCourses } from "./Format.tsx"
 import { useColumns, useCourses } from "./Hooks.tsx"
 import {

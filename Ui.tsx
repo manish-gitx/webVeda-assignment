@@ -10,7 +10,7 @@ import {
     contrastText,
     theme,
     tint,
-} from "./Theme.tsx"
+} from "./Tokens.tsx"
 import { formatPrice } from "./Format.tsx"
 
 /** One <style> tag carrying the rules inline styles can't express. */

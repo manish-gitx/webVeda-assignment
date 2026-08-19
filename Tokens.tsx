@@ -1,5 +1,5 @@
 /**
- * Theme — design tokens, colour maths and the one stylesheet.
+ * Tokens — design tokens, colour maths and the one stylesheet.
  *
  * Plain JavaScript. The .tsx extension is Framer's, not a TypeScript signal:
  * Framer creates every code file as .tsx and relative imports must carry the
