@@ -1,36 +1,39 @@
 /**
- * Ui — presentational building blocks. Every one of these takes a resolved
- * theme and renders; none of them fetch, measure or own state. That split is
- * what makes the section easy to restyle without touching the data code.
- *
- * Plain JavaScript (see the note at the top of Tokens.tsx about the extension).
+ * Ui — presentational building blocks. Every one of these takes data and
+ * renders; none of them fetch, measure or own state. That split is what makes
+ * the section easy to restyle without touching the data code.
  */
 
-import { GLOBAL_CSS, POSITIVE, SHADOWS, mix, readableOn, tint } from "./Tokens.tsx"
-import { extraFieldValue, formatPrice } from "./Format.tsx"
+import {
+    GLOBAL_CSS,
+    contrastRatio,
+    contrastText,
+    theme,
+    tint,
+} from "./Theme.tsx"
+import { formatPrice } from "./Format.tsx"
 
-/** One <style> tag carrying the rules that inline styles can't express. */
+/** One <style> tag carrying the rules inline styles can't express. */
 export function StyleSheet() {
     return <style>{GLOBAL_CSS}</style>
 }
 
 /* ---------------------------------- atoms ---------------------------------- */
 
-export function Chip({ label, theme, tone }) {
-    const colour = tone === "positive" ? POSITIVE : theme.accent
-    // The label sits on a 12% tint of its own colour composited over the card
-    // surface, so that blend — not the surface alone — is the real backdrop to
-    // measure legibility against.
-    const backdrop = mix(theme.surface, colour, 0.12)
+function Chip({ label, color }) {
     return (
         <span
             style={{
                 fontSize: 12,
                 fontWeight: 500,
                 lineHeight: 1.4,
-                color: readableOn(colour, backdrop, theme.text),
-                background: tint(colour, 0.12),
-                border: `1px solid ${tint(colour, 0.28)}`,
+                // A dark accent can't legibly be its own label on this
+                // surface; fall back to body text rather than print it
+                // unreadable. 4.5:1 is the WCAG minimum for small text.
+                color:
+                    contrastRatio(color, theme.surface) >= 4.5 ? color : theme.text,
+                background: tint(color, 0.12),
+                border: `1px solid ${tint(color, 0.28)}`,
                 borderRadius: 999,
                 padding: "4px 10px",
                 whiteSpace: "nowrap",
@@ -41,7 +44,7 @@ export function Chip({ label, theme, tone }) {
     )
 }
 
-export function ActionButton({ theme, onClick, children }) {
+function PrimaryButton({ accentColor, onClick, children }) {
     return (
         <button
             type="button"
@@ -52,8 +55,10 @@ export function ActionButton({ theme, onClick, children }) {
                 padding: "10px 20px",
                 borderRadius: 10,
                 border: "none",
-                background: theme.accent,
-                color: theme.onAccent,
+                background: accentColor,
+                // Ink on a bright accent, white on a dark one — measured,
+                // not guessed at with a luminance cutoff.
+                color: contrastText(accentColor),
                 fontSize: 14,
                 fontWeight: 600,
                 fontFamily: "inherit",
@@ -65,7 +70,9 @@ export function ActionButton({ theme, onClick, children }) {
     )
 }
 
-const fieldStyle = (theme) => ({
+/* --------------------------------- toolbar --------------------------------- */
+
+const fieldStyle = {
     padding: "10px 14px",
     borderRadius: 10,
     border: `1px solid ${theme.border}`,
@@ -73,62 +80,40 @@ const fieldStyle = (theme) => ({
     color: theme.text,
     fontSize: 14,
     fontFamily: "inherit",
-})
+}
 
-/* --------------------------------- toolbar --------------------------------- */
-
-export function Toolbar({
-    theme,
-    query,
-    onQuery,
-    sort,
-    onSort,
-    showSearch,
-    showSort,
-    disabled,
-    searchPlaceholder,
-}) {
-    if (!showSearch && !showSort) return null
-
+export function Toolbar({ query, onQuery, sortOrder, onSort, disabled }) {
     return (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {showSearch && (
-                <input
-                    className="sp-focusable"
-                    type="search"
-                    value={query}
-                    onChange={(event) => onQuery(event.target.value)}
-                    placeholder={searchPlaceholder}
-                    aria-label={searchPlaceholder}
-                    disabled={disabled}
-                    style={{ ...fieldStyle(theme), width: 200 }}
-                />
-            )}
-
-            {showSort && (
-                <select
-                    className="sp-focusable"
-                    value={sort}
-                    onChange={(event) => onSort(event.target.value)}
-                    aria-label="Sort courses"
-                    disabled={disabled}
-                    style={fieldStyle(theme)}
-                >
-                    <option value="featured">Sort: featured</option>
-                    <option value="asc">Price: low to high</option>
-                    <option value="desc">Price: high to low</option>
-                </select>
-            )}
+            <input
+                className="sp-focusable"
+                type="search"
+                value={query}
+                onChange={(event) => onQuery(event.target.value)}
+                placeholder="Search courses"
+                aria-label="Search courses"
+                disabled={disabled}
+                style={{ ...fieldStyle, width: 200 }}
+            />
+            <select
+                className="sp-focusable"
+                value={sortOrder}
+                onChange={(event) => onSort(event.target.value)}
+                aria-label="Sort courses"
+                disabled={disabled}
+                style={fieldStyle}
+            >
+                <option value="default">Sort: featured</option>
+                <option value="asc">Price: low to high</option>
+                <option value="desc">Price: high to low</option>
+            </select>
         </div>
     )
 }
 
 /* ----------------------------------- card ---------------------------------- */
 
-export function CourseCard({ course, country, theme, card, priceNote, priceReady }) {
-    const extra = extraFieldValue(course, card.extraField)
-    const showRefundable = card.showRefundable && course.refundable === true
-
+function CourseCard({ course, country, accentColor, priceReady, card }) {
     return (
         <article
             className="sp-card"
@@ -139,19 +124,31 @@ export function CourseCard({ course, country, theme, card, priceNote, priceReady
                 padding: card.padding,
                 borderRadius: card.radius,
                 background: theme.surface,
+                // Width and style inline, colour via the custom property: a
+                // style-attribute declaration outranks any author rule, so an
+                // inline border-color would make :hover impossible to apply.
                 borderWidth: 1,
                 borderStyle: "solid",
-                ["--sp-card-border"]: card.showBorder ? theme.border : "transparent",
-                boxShadow: SHADOWS[card.shadow] || SHADOWS.none,
+                "--sp-card-border": theme.border,
                 minWidth: 0,
             }}
         >
-            {(extra || showRefundable) && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                    {extra && <Chip label={extra} theme={theme} />}
-                    {showRefundable && <Chip label="Refundable" theme={theme} tone="positive" />}
-                </div>
-            )}
+            <div
+                style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 8,
+                    alignItems: "center",
+                }}
+            >
+                {/* The extra field the brief asks for. Category is the one a
+                    learner actually scans for; courseCode and mangoId are
+                    internal identifiers and deliberately absent. */}
+                <Chip label={course.mainCategory || "Course"} color={accentColor} />
+                {course.refundable === true && (
+                    <Chip label="Refundable" color={theme.positive} />
+                )}
+            </div>
 
             <h3
                 style={{
@@ -171,11 +168,10 @@ export function CourseCard({ course, country, theme, card, priceNote, priceReady
                     fontSize: 14,
                     lineHeight: 1.55,
                     color: theme.muted,
-                    // Clamped to a configurable number of lines, cut with an
-                    // ellipsis rather than a hard crop.
+                    // Two lines, cut with an ellipsis rather than a hard crop.
                     display: "-webkit-box",
                     WebkitBoxOrient: "vertical",
-                    WebkitLineClamp: card.descriptionLines,
+                    WebkitLineClamp: 2,
                     overflow: "hidden",
                 }}
             >
@@ -192,11 +188,13 @@ export function CourseCard({ course, country, theme, card, priceNote, priceReady
                     gap: 8,
                 }}
             >
-                {/* Until the country lookup settles the currency is a guess,
+                {/* Until the country lookup settles the currency is unknown,
                     so hold the number back rather than print one we may have
                     to swap a moment later. */}
                 {priceReady ? (
-                    <span style={{ fontSize: 20, fontWeight: 600, color: theme.text }}>
+                    <span
+                        style={{ fontSize: 20, fontWeight: 600, color: theme.text }}
+                    >
                         {formatPrice(course, country)}
                     </span>
                 ) : (
@@ -206,15 +204,21 @@ export function CourseCard({ course, country, theme, card, priceNote, priceReady
                         style={{ display: "inline-block", width: "5ch", height: 20 }}
                     />
                 )}
-                {priceNote ? (
-                    <span style={{ fontSize: 12, color: theme.muted }}>{priceNote}</span>
-                ) : null}
+                <span style={{ fontSize: 12, color: theme.muted }}>one-time</span>
             </div>
         </article>
     )
 }
 
-export function CourseGrid({ courses, columns, gap, country, theme, card, priceNote, priceReady }) {
+export function CourseGrid({
+    courses,
+    columns,
+    gap,
+    country,
+    accentColor,
+    priceReady,
+    card,
+}) {
     return (
         <div
             style={{
@@ -225,15 +229,14 @@ export function CourseGrid({ courses, columns, gap, country, theme, card, priceN
         >
             {courses.map((course, index) => (
                 <CourseCard
-                    // courseCode is the stable id in the payload; index is only
-                    // ever the last resort.
+                    // courseCode is the stable id in the payload; index is
+                    // only ever the last resort.
                     key={course.courseCode || course.mangoId || index}
                     course={course}
                     country={country}
-                    theme={theme}
-                    card={card}
-                    priceNote={priceNote}
+                    accentColor={accentColor}
                     priceReady={priceReady}
+                    card={card}
                 />
             ))}
         </div>
@@ -242,7 +245,7 @@ export function CourseGrid({ courses, columns, gap, country, theme, card, priceN
 
 /* ---------------------------------- states --------------------------------- */
 
-export function SkeletonGrid({ columns, count, gap, theme, card }) {
+export function SkeletonGrid({ columns, count, gap, card }) {
     const bars = [96, "70%", "100%", "85%"]
 
     return (
@@ -261,9 +264,7 @@ export function SkeletonGrid({ columns, count, gap, theme, card }) {
                         padding: card.padding,
                         borderRadius: card.radius,
                         background: theme.surface,
-                        borderWidth: 1,
-                        borderStyle: "solid",
-                        borderColor: card.showBorder ? theme.border : "transparent",
+                        border: `1px solid ${theme.border}`,
                         display: "flex",
                         flexDirection: "column",
                         gap: 12,
@@ -273,7 +274,7 @@ export function SkeletonGrid({ columns, count, gap, theme, card }) {
                         <div
                             key={barIndex}
                             className="sp-skeleton"
-                            style={{ width, height: barIndex < 2 ? 20 : 14 }}
+                            style={{ width, height: barIndex < 2 ? 21 : 14 }}
                         />
                     ))}
                     <div
@@ -286,7 +287,7 @@ export function SkeletonGrid({ columns, count, gap, theme, card }) {
     )
 }
 
-export function StateBox({ theme, children }) {
+function StateBox({ children }) {
     return (
         <div
             role="status"
@@ -309,35 +310,51 @@ export function StateBox({ theme, children }) {
     )
 }
 
-export function ErrorState({ theme, detail, onRetry, copy }) {
+export function ErrorState({ detail, accentColor, onRetry }) {
     return (
-        <StateBox theme={theme}>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{copy.errorTitle}</h3>
-            <p style={{ margin: 0, fontSize: 14, color: theme.muted }}>{copy.errorBody}</p>
-            <ActionButton theme={theme} onClick={onRetry}>
-                {copy.retryLabel}
-            </ActionButton>
+        <StateBox>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>
+                We couldn't load the courses
+            </h3>
+            <p style={{ margin: 0, fontSize: 14, color: theme.muted }}>
+                The course service didn't answer. Nothing is wrong on your end.
+            </p>
+            <PrimaryButton accentColor={accentColor} onClick={onRetry}>
+                Try again
+            </PrimaryButton>
             {/* The status code helps whoever debugs this; it is not the headline. */}
             {detail ? (
-                <span style={{ fontSize: 12, color: theme.muted, opacity: 0.7 }}>{detail}</span>
+                <span style={{ fontSize: 12, color: theme.muted, opacity: 0.7 }}>
+                    {detail}
+                </span>
             ) : null}
         </StateBox>
     )
 }
 
-export function EmptyState({ theme, isFiltered, query, onClear, onRetry, copy }) {
+export function EmptyState({ isFiltered, query, accentColor, onClear, onRetry }) {
     // "Your search matched nothing" and "the catalogue is empty" are different
-    // problems, so they get different words and a different button.
-    const title = isFiltered ? `${copy.noMatchTitle} "${query.trim()}"` : copy.emptyTitle
-    const body = isFiltered ? copy.noMatchBody : copy.emptyBody
-
+    // problems, so they get different words and a different button. The API
+    // never returns zero courses, so the filtered case is the only one a
+    // visitor can actually reach.
     return (
-        <StateBox theme={theme}>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{title}</h3>
-            <p style={{ margin: 0, fontSize: 14, color: theme.muted }}>{body}</p>
-            <ActionButton theme={theme} onClick={isFiltered ? onClear : onRetry}>
-                {isFiltered ? copy.clearLabel : copy.reloadLabel}
-            </ActionButton>
+        <StateBox>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>
+                {isFiltered
+                    ? `No courses match "${query.trim()}"`
+                    : "No courses yet"}
+            </h3>
+            <p style={{ margin: 0, fontSize: 14, color: theme.muted }}>
+                {isFiltered
+                    ? "Try a shorter word, or clear the search to see everything."
+                    : "The catalogue came back empty. Check again in a moment."}
+            </p>
+            <PrimaryButton
+                accentColor={accentColor}
+                onClick={isFiltered ? onClear : onRetry}
+            >
+                {isFiltered ? "Clear search" : "Reload"}
+            </PrimaryButton>
         </StateBox>
     )
 }
